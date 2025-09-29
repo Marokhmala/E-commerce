@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Georgia Regions Map (GeoJSON)</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+        }
+
+        #container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            border: 1px solid #ccc;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        path {
+            fill: #dfe6e9;
+            stroke: #2d3436;
+            cursor: pointer;
+            transition: fill 0.2s, stroke-width 0.2s;
+        }
+
+        path:hover {
+            fill: #fab1a0;
+            stroke-width: 2px;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #333;
+            padding: 4px 6px;
+            font-size: 13px;
+            pointer-events: none;
+            display: none;
+            white-space: nowrap;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Interactive Map of Georgia (Regions)</h2>
+    <div id="container">
+        <svg id="map"></svg>
+        <div id="tooltip" class="tooltip"></div>
+    </div>
+
+    <script>
+        // Use REGION-level GeoJSON
+        const GEOJSON_URL = './asset/mapData/gadm41_GEO_1.json';
+
+        const svg = document.getElementById('map');
+        const tooltip = document.getElementById('tooltip');
+        const width = svg.clientWidth;
+        const height = svg.clientHeight;
+
+        let minLon, maxLon, minLat, maxLat;
+
+        function project([lon, lat]) {
+            const x = ((lon - minLon) / (maxLon - minLon)) * width;
+            const y = height - ((lat - minLat) / (maxLat - minLat)) * height;
+            return [x, y];
+        }
+
+        fetch(GEOJSON_URL)
+            .then(response => response.json())
+            .then(geojson => {
+                const lons = [], lats = [];
+
+                // Find bounding box
+                geojson.features.forEach(feature => {
+                    const geom = feature.geometry;
+                    if (geom.type === 'Polygon') {
+                        geom.coordinates.forEach(ring => {
+                            ring.forEach(([lon, lat]) => {
+                                lons.push(lon); lats.push(lat);
+                            });
+                        });
+                    } else if (geom.type === 'MultiPolygon') {
+                        geom.coordinates.forEach(polygon => {
+                            polygon.forEach(ring => {
+                                ring.forEach(([lon, lat]) => {
+                                    lons.push(lon); lats.push(lat);
+                                });
+                            });
+                        });
+                    }
+                });
+
+                minLon = Math.min(...lons);
+                maxLon = Math.max(...lons);
+                minLat = Math.min(...lats);
+                maxLat = Math.max(...lats);
+
+                // Draw each region
+                geojson.features.forEach(feature => {
+                    const geom = feature.geometry;
+
+                    if (geom.type === 'Polygon') {
+                        geom.coordinates.forEach(ring => {
+                            svg.appendChild(polygonToPath(ring, feature.properties));
+                        });
+                    } else if (geom.type === 'MultiPolygon') {
+                        geom.coordinates.forEach(polygon => {
+                            polygon.forEach(ring => {
+                                svg.appendChild(polygonToPath(ring, feature.properties));
+                            });
+                        });
+                    }
+                });
+            })
+            .catch(err => console.error('Error loading GeoJSON:', err));
+
+        function polygonToPath(ring, properties) {
+  let pathData = '';
+  let sumX = 0, sumY = 0; // for centroid
+  ring.forEach(([lon, lat], i) => {
+    const [x, y] = project([lon, lat]);
+    pathData += (i === 0) ? `M${x},${y}` : `L${x},${y}`;
+    sumX += x;
+    sumY += y;
+  });
+
+  pathData += ' Z';
+
+  const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  pathEl.setAttribute("d", pathData);
+
+  const name = properties.NAME_1 || properties.NAME || 'Unknown Region';
+  pathEl.setAttribute("data-name", name);
+
+  // Centroid
+  const cx = sumX / ring.length;
+  const cy = sumY / ring.length;
+
+  // Show tooltip on hover
+  pathEl.addEventListener("mouseover", () => {
+    tooltip.style.display = "block";
+    tooltip.style.left = (cx + 10) + "px"; // small offset
+    tooltip.style.top = (cy - 20) + "px";
+    tooltip.textContent = name;
+  });
+
+  pathEl.addEventListener("mouseout", () => {
+    tooltip.style.display = "none";
+  });
+
+  return pathEl;
+}
+
+    </script>
+</body>
+
+</html>
